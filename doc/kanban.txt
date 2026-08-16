@@ -1,0 +1,336 @@
+*kanban.txt*    A fast, keyboard-driven kanban board for Neovim
+
+                                                            *nvim-kanban*
+
+Author:   nvim-kanban contributors
+License:  MIT
+
+==============================================================================
+CONTENTS                                                    *kanban-contents*
+
+    1. Introduction ................ |kanban-introduction|
+    2. Installation ................ |kanban-installation|
+    3. Quick start ................. |kanban-quickstart|
+    4. Keymaps ..................... |kanban-keymaps|
+    5. File formats ................ |kanban-formats|
+    6. Configuration ............... |kanban-configuration|
+    7. Highlights .................. |kanban-highlights|
+    8. API ......................... |kanban-api|
+
+==============================================================================
+1. INTRODUCTION                                         *kanban-introduction*
+
+nvim-kanban lets you open, edit, and navigate a kanban board without leaving
+Neovim. Boards are stored as plain Markdown or Org-mode files that you can
+version-control, grep, and edit with any text editor.
+
+Features:
+  • Side-by-side column layout rendered with floating windows
+  • Full keyboard navigation between columns and cards
+  • Create, rename, delete, archive, and search cards
+  • Reorder cards within a column with J / K
+  • Reorder columns with H / L
+  • Inline tag syntax: type `Fix bug #auth #backend` when adding a card
+  • Due dates with overdue highlighting
+  • Floating calendar date picker
+  • Full-screen card detail popup with note and due-date access
+  • Per-card note files — only saved when buffer has content
+  • Auto-save after every change (manual save with <leader>ks)
+  • Markdown and Org-mode board formats
+
+==============================================================================
+2. INSTALLATION                                         *kanban-installation*
+
+Requirements:
+  • Neovim >= 0.9.0
+  • A Nerd Font for icons (optional but recommended)
+
+With lazy.nvim: >lua
+    {
+      "surgiie/nvim-kanban",
+      config = function()
+        require("kanban").setup()
+      end,
+    }
+<
+==============================================================================
+3. QUICK START                                          *kanban-quickstart*
+
+Press `<leader>kb` in any project directory. If `.kanban/board.md` does not
+exist you will be prompted to create it. The board opens automatically.
+
+The board stores files at: >
+    .kanban/
+      board.md      ← board file
+      notes/        ← per-card note files
+<
+Opening a `.md` or `.org` file that contains `kanban-plugin:` or `#+KANBAN:`
+in its first few lines will also trigger the board to open automatically.
+Press `<leader>kt` to toggle between the board view and the raw source file.
+
+==============================================================================
+4. KEYMAPS                                                   *kanban-keymaps*
+
+All keymaps are buffer-local to the board windows and configurable via
+|kanban-configuration|. Defaults:
+
+Navigation ~
+    l           Move to next column
+    h           Move to previous column
+    j           Move cursor to next card
+    k           Move cursor to previous card
+    gg          Jump to first card
+    G           Jump to last card
+
+Cards ~
+    i           Open card detail popup
+    a           Add a new card  (supports inline `#tag` syntax)
+    e           Edit card title and tags
+    d           Delete card (with confirmation)
+    x           Delete card (no confirmation)
+    A           Archive card to the archive column
+    <CR>        Move card to the right column
+    <BS>        Move card to the left column
+    J           Reorder card down within column
+    K           Reorder card up within column
+    <Space>     Toggle done / undone
+    n           Open / create a note file for this card
+    D           Open calendar picker to set a due date
+
+Card detail popup ~
+    e           Edit card title / tags
+    D           Set due date
+    n           Open / create note file
+    x           Delete note file (with confirmation)
+    q / <Esc>   Close detail and return to board
+
+Columns ~
+    C           Add a new column
+    R           Rename the current column
+    X           Delete the current column (with confirmation)
+    H           Reorder column left
+    L           Reorder column right
+
+Board ~
+    /           Search cards (live filter)
+    r           Reload board from file
+    <leader>ks  Save board to disk
+    <leader>kt  Toggle between board and raw source file
+    q / <Esc>   Close board
+    ?           Show keybinding help
+
+Date picker ~
+    h / l       Previous / next day
+    j / k       Previous / next week
+    H / L       Previous / next month
+    <CR>        Confirm selected date
+    x           Clear due date
+    <Esc>       Cancel
+
+==============================================================================
+5. FILE FORMATS                                             *kanban-formats*
+
+Markdown ~
+
+Boards use the Obsidian Kanban format. The frontmatter block is required for
+auto-detection: >markdown
+    ---
+    kanban-plugin: basic
+    ---
+
+    ## To Do
+
+    - [ ] Write the parser #feature @due(2025-01-15)
+    - [ ] Add unit tests #testing
+
+    ## In Progress
+
+    - [ ] Refactor UI @note(.kanban/notes/refactor.md)
+
+    ## Done
+
+    - [x] Initial scaffolding #setup
+<
+Inline metadata on each card line:
+  • `- [ ]` / `- [x]`       open / done checkbox
+  • `#tagname`               attach a tag
+  • `@due(YYYY-MM-DD)`       set a due date
+  • `@note(path/to/file.md)` link a note file
+
+Org-mode ~
+
+Level-1 headings are columns; level-2 headings are cards: >org
+    #+TODO: TODO IN-PROGRESS | DONE
+
+    * To Do
+    ** TODO Write the parser                :feature:
+       DEADLINE: <2025-01-15 Wed>
+
+    * In Progress
+    ** IN-PROGRESS Refactor UI              :refactor:
+
+    * Done
+    ** DONE Initial scaffolding             :setup:
+<
+Note file paths are stored in a `:KANBAN_NOTE:` property drawer.
+
+==============================================================================
+6. CONFIGURATION                                        *kanban-configuration*
+
+Call `require("kanban").setup(opts)` with any of the options below.
+All are optional — the defaults are shown: >lua
+    require("kanban").setup({
+      -- Format: "markdown", "org", or nil (auto-detect from extension)
+      format = nil,
+
+      -- Global toggle keymap (false to disable)
+      keymap = "<leader>kb",
+
+      -- Board window size as a fraction of the terminal
+      width  = 0.92,
+      height = 0.85,
+
+      -- Minimum column width in characters
+      column_width = 28,
+
+      -- Gap between columns in characters
+      column_gap = 1,
+
+      -- Save the board file after every change
+      auto_save = true,
+
+      -- Column name used for archived cards
+      archive_column = "Archive",
+
+      -- Directory for note files (nil = notes/ beside board file)
+      notes_dir = nil,
+
+      -- Icons (set any to "" to hide; requires a Nerd Font)
+      icons = {
+        card        = "󰆼 ",
+        card_done   = "󰄲 ",
+        tag         = "󰓹 ",
+        due         = "󰃰 ",
+        overdue     = "󰃮 ",
+        note        = "󰎞 ",
+        checkbox    = "󰄱 ",
+        checked     = "󰄲 ",
+        column      = "󰙅 ",
+        archive     = "󰀼 ",
+        search      = "󰍉 ",
+        add         = "󰐕 ",
+        delete      = "󰆴 ",
+        edit        = "󰏫 ",
+        move        = "󰁙 ",
+        calendar    = "󰃭 ",
+      },
+
+      -- Popup window styling (input floats, detail popup)
+      popup = {
+        border = "rounded",
+        width  = 60,
+        height = 6,
+        zindex = 100,
+      },
+
+      -- Date picker styling
+      date_picker = {
+        border = "rounded",
+        width  = 34,
+      },
+
+      -- Keymaps (set any to false to disable)
+      keymaps = {
+        -- Navigation
+        next_column       = "l",
+        prev_column       = "h",
+        card_down         = "j",
+        card_up           = "k",
+        first_card        = "gg",
+        last_card         = "G",
+
+        -- Card actions
+        open_card         = "i",
+        add_card          = "a",
+        edit_card         = "e",
+        delete_card       = "d",
+        archive_card      = "A",
+        move_card_right   = "<CR>",
+        move_card_left    = "<BS>",
+        move_card_up      = "K",
+        move_card_down    = "J",
+        toggle_done       = "<Space>",
+        open_note         = "n",
+        set_due_date      = "D",
+
+        -- Column actions
+        add_column        = "C",
+        rename_column     = "R",
+        delete_column     = "X",
+        move_column_left  = "H",
+        move_column_right = "L",
+
+        -- Board actions
+        search            = "/",
+        reload            = "r",
+        save              = "<leader>ks",
+        open_source       = "<leader>kt",
+        close             = "q",
+        close2            = "<Esc>",
+        help              = "?",
+      },
+
+      -- Highlight group overrides (see :h nvim_set_hl for attribute format)
+      highlights = {
+        -- KanbanCardSelected = { bg = "#3d4220", bold = true },
+      },
+    })
+<
+==============================================================================
+7. HIGHLIGHTS                                           *kanban-highlights*
+
+The following highlight groups are defined by the plugin:
+
+    KanbanNormal          Board window background        → NormalFloat
+    KanbanBorder          Board outer border             → FloatBorder
+    KanbanColumnHeader    Column title                   → Function
+    KanbanColumnBorder    Column separator line          → FloatBorder
+    KanbanCard            Card title                     → Normal
+    KanbanCardDone        Done card (strikethrough)      → Comment
+    KanbanCardSelected    Focused card highlight         → Visual
+    KanbanTag             Tag text                       → Special
+    KanbanDueDate         Upcoming due date              → WarningMsg
+    KanbanDueToday        Due date is today              → WarningMsg
+    KanbanOverdue         Past due date                  → ErrorMsg
+    KanbanNote            Note indicator                 → Comment
+    KanbanHint            Empty column hint / help text  → Comment
+
+Override any group in the `highlights` table passed to |kanban.setup()|.
+
+==============================================================================
+8. API                                                          *kanban-api*
+
+                                                        *kanban.setup()*
+kanban.setup({opts})
+    Initialize the plugin with user options. Merges `opts` over the defaults.
+
+                                                        *kanban.open()*
+kanban.open({filepath}, {opts})
+    Open a board. `filepath` defaults to `.kanban/board.md` in the cwd.
+    If the file does not exist you are prompted to create it.
+    `opts` accepts `{ format = "markdown"|"org" }`.
+
+                                                        *kanban.close()*
+kanban.close()
+    Close the board.
+
+                                                        *kanban.toggle()*
+kanban.toggle({filepath}, {opts})
+    Toggle the board open or closed.
+
+                                                        *kanban.save()*
+kanban.save()
+    Save the board to its file immediately, regardless of `auto_save`.
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl:
