@@ -21,6 +21,22 @@ function M.set_lines(buf, lines)
   vim.bo[buf].modifiable = false
 end
 
+--- Make :w / :wq / :x in an input buffer trigger `confirm` instead of
+--- erroring with "Cannot write, 'buftype' option is set" (these are
+--- nofile scratch buffers, so there's nothing to actually write).
+---@param buf number Buffer handle
+---@param confirm function Called in place of writing
+local function redirect_write_to_confirm(buf, confirm)
+  local cmd_name = "KanbanConfirm" .. buf
+  vim.api.nvim_buf_create_user_command(buf, cmd_name, confirm, {})
+  for _, cmd in ipairs({ "w", "wq", "x" }) do
+    vim.cmd(string.format(
+      "cnoreabbrev <buffer> <expr> %s (getcmdtype() == ':' && getcmdline() == '%s') ? '%s' : '%s'",
+      cmd, cmd, cmd_name, cmd
+    ))
+  end
+end
+
 --- Open a centered floating window for the given buffer.
 ---@param buf number Buffer handle to display
 ---@param opts table|nil Options: width, height, width_pct, height_pct, row, col,
@@ -183,11 +199,14 @@ function M.small_input_float(opts)
 
   map({ "i", "n" }, "<CR>",  confirm)
   map({ "i", "n" }, "<C-s>", confirm)
-  map({ "i", "n" }, "<Esc>", cancel)
+  map("i", "<Esc>", "<Esc>")
+  map("n", "<Esc>", cancel)
 
   -- Block multi-line input
   map({ "i", "n" }, "<C-j>", function() end)
   map({ "i", "n" }, "<C-m>", function() end)
+
+  redirect_write_to_confirm(buf, confirm)
 
   if opts.default and opts.default ~= "" then
     vim.cmd("startinsert!")
@@ -288,7 +307,10 @@ function M.input_float(opts)
   end
 
   map({"i", "n"}, "<C-s>", confirm)
-  map({"i", "n"}, "<Esc>", cancel)
+  map("i", "<Esc>", "<Esc>")
+  map("n", "<Esc>", cancel)
+
+  redirect_write_to_confirm(buf, confirm)
 
   if opts.default and opts.default ~= "" then
     vim.cmd("startinsert!")
