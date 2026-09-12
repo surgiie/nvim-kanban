@@ -2,7 +2,7 @@
 
 A minimal kanban board for Neovim.
 
-![kantui overview](https://i.imgur.com/nbtuSK6.png)
+![nvim-kanban demo](assets/demo.gif)
 
 
 ## Requirements
