@@ -65,6 +65,17 @@ local function refresh()
   M._attach_keymaps()
 end
 
+-- Open `path` for editing in a fresh split rather than the current window.
+-- The board is always closed (all-floating-windows) right before this is
+-- called, which can leave exactly one real window behind; editing directly
+-- in it means a plain `:q`/`:wq`/`ZZ` on the note closes Neovim's last
+-- window and quits the editor instead of firing WinClosed so the board can
+-- reopen. Splitting first guarantees a window survives the close.
+local function edit_in_split(path)
+  vim.cmd("split")
+  vim.cmd("edit " .. vim.fn.fnameescape(path))
+end
+
 -- Show a [kanban] prefixed notification.
 local function notify(msg, level)
   vim.notify("[kanban] " .. msg, level or vim.log.levels.INFO)
@@ -220,7 +231,7 @@ function actions.add_card()
     on_confirm = function(input)
       if input == "" then
         M._state = { col_idx = saved_col, card_idx = saved_card }
-        M.open(saved_file)
+        M.open(saved_file, { keep_state = true })
         return
       end
       local tags = {}
@@ -231,18 +242,18 @@ function actions.add_card()
       local card_title = util.trim(text)
       if card_title == "" then
         M._state = { col_idx = saved_col, card_idx = saved_card }
-        M.open(saved_file)
+        M.open(saved_file, { keep_state = true })
         return
       end
       board_mod.load(saved_file)
       local _, pos = board_mod.add_card(saved_col, card_title, { tags = tags })
       M._state = { col_idx = saved_col, card_idx = pos }
       save_if_auto()
-      M.open(saved_file)
+      M.open(saved_file, { keep_state = true })
     end,
     on_cancel = function()
       M._state = { col_idx = saved_col, card_idx = saved_card }
-      M.open(saved_file)
+      M.open(saved_file, { keep_state = true })
     end,
   })
 end
@@ -281,11 +292,11 @@ function actions.edit_card()
         save_if_auto()
       end
       M._state = { col_idx = saved_col, card_idx = saved_card }
-      M.open(saved_file)
+      M.open(saved_file, { keep_state = true })
     end,
     on_cancel = function()
       M._state = { col_idx = saved_col, card_idx = saved_card }
-      M.open(saved_file)
+      M.open(saved_file, { keep_state = true })
     end,
   })
 end
@@ -363,7 +374,7 @@ function actions.open_note()
   local saved_file = M._filepath --[[@as string]]
 
   actions.close()
-  vim.cmd("edit " .. vim.fn.fnameescape(path))
+  edit_in_split(path)
 
   local note_buf = vim.api.nvim_get_current_buf()
   local note_win = vim.api.nvim_get_current_win()
@@ -398,7 +409,7 @@ function actions.open_note()
     end
     vim.schedule(function()
       M._state = { col_idx = saved_col, card_idx = saved_card }
-      M.open(saved_file)
+      M.open(saved_file, { keep_state = true })
     end)
   end
 
@@ -520,7 +531,7 @@ function actions.open_card()
         vim.api.nvim_win_close(win, true)
       end
       M._state = { col_idx = saved_col, card_idx = saved_card }
-      M.open(saved_file)
+      M.open(saved_file, { keep_state = true })
     end
 
     vim.keymap.set("n", "q",     close,                                         map_opts)
@@ -538,7 +549,7 @@ function actions.open_card()
       -- Re-fetch card so we get the latest note_file state.
       local fresh_card = board_mod.get_card(saved_col, saved_card) or card
       local path       = board_mod.open_note(fresh_card)
-      vim.cmd("edit " .. vim.fn.fnameescape(path))
+      edit_in_split(path)
       local note_buf = vim.api.nvim_get_current_buf()
       local note_win = vim.api.nvim_get_current_win()
       local reopened = false
@@ -569,7 +580,7 @@ function actions.open_card()
         end
         vim.schedule(function()
           M._state = { col_idx = saved_col, card_idx = saved_card }
-          M.open(saved_file)
+          M.open(saved_file, { keep_state = true })
         end)
       end
 
@@ -631,17 +642,17 @@ function actions.add_column()
     on_confirm  = function(name)
       if name == "" then
         M._state = { col_idx = saved_col, card_idx = saved_card }
-        M.open(saved_file)
+        M.open(saved_file, { keep_state = true })
         return
       end
       local new_idx = board_mod.add_column(name)
       M._state = { col_idx = new_idx or 1, card_idx = 0 }
       save_if_auto()
-      M.open(saved_file)
+      M.open(saved_file, { keep_state = true })
     end,
     on_cancel = function()
       M._state = { col_idx = saved_col, card_idx = saved_card }
-      M.open(saved_file)
+      M.open(saved_file, { keep_state = true })
     end,
   })
 end
@@ -662,17 +673,17 @@ function actions.rename_column()
     on_confirm  = function(name)
       if name == "" then
         M._state = { col_idx = saved_col, card_idx = saved_card }
-        M.open(saved_file)
+        M.open(saved_file, { keep_state = true })
         return
       end
       board_mod.rename_column(saved_col, name)
       M._state = { col_idx = saved_col, card_idx = saved_card }
       save_if_auto()
-      M.open(saved_file)
+      M.open(saved_file, { keep_state = true })
     end,
     on_cancel = function()
       M._state = { col_idx = saved_col, card_idx = saved_card }
-      M.open(saved_file)
+      M.open(saved_file, { keep_state = true })
     end,
   })
 end
@@ -697,7 +708,7 @@ function actions.delete_column()
 
   if answer ~= 1 then
     M._state = { col_idx = saved_col, card_idx = M._state.card_idx }
-    M.open(saved_file)
+    M.open(saved_file, { keep_state = true })
     return
   end
 
@@ -706,7 +717,7 @@ function actions.delete_column()
   M._state.card_idx = 1
   if num_cards(M._state.col_idx) == 0 then M._state.card_idx = 0 end
   save_if_auto()
-  M.open(saved_file)
+  M.open(saved_file, { keep_state = true })
 end
 
 -- Move the focused column one position to the left.
@@ -784,7 +795,7 @@ function actions.open_source()
   vim.keymap.set("n", toggle_key, function()
     vim.api.nvim_buf_delete(src_buf, { force = true })
     M._state = { col_idx = saved_col, card_idx = saved_card }
-    M.open(path)
+    M.open(path, { keep_state = true })
   end, { buffer = src_buf, noremap = true, silent = true, desc = "Return to kanban board" })
 
   -- Also reopen if the buffer is wiped/deleted any other way
@@ -794,7 +805,7 @@ function actions.open_source()
     callback = function()
       vim.schedule(function()
         M._state = { col_idx = saved_col, card_idx = saved_card }
-        M.open(path)
+        M.open(path, { keep_state = true })
       end)
     end,
   })
@@ -808,7 +819,7 @@ function actions.help()
   board_view.close()
   require("kanban.ui.help").open(function()
     M._state = { col_idx = saved_col, card_idx = saved_card }
-    M.open(saved_file)
+    M.open(saved_file, { keep_state = true })
   end)
 end
 
@@ -941,7 +952,7 @@ end
 
 --- Open the kanban board for the given file.
 ---@param filepath string|nil Path to board file (default: .kanban/board.md in cwd)
----@param opts table|nil { format = "markdown"|"org" }
+---@param opts table|nil { format = "markdown"|"org", keep_state = boolean }
 function M.open(filepath, opts)
   opts = opts or {}
   M._open_gen = M._open_gen + 1
@@ -973,8 +984,12 @@ function M.open(filepath, opts)
 
   board_mod.load(filepath, opts.format)
 
-  -- Reset state
-  M._state = { col_idx = 1, card_idx = 1 }
+  -- Reset state, unless the caller is reopening the board after a popup
+  -- (add/edit card, note editing, column actions, ...) and already set
+  -- M._state to the cursor position it wants restored.
+  if not opts.keep_state then
+    M._state = { col_idx = 1, card_idx = 1 }
+  end
   clamp_state()
   M._keymaps_attached = {}
 
