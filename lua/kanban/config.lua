@@ -43,6 +43,9 @@ M.defaults = {
   -- Auto-save board after every change
   auto_save = true,
 
+  -- Quit neovim when the board is closed (q / <Esc> / :KanbanClose / toggle)
+  quit_on_close = true,
+
   -- Keymaps (set any to false to disable)
   keymaps = {
     -- Navigation

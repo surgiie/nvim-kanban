@@ -1,7 +1,7 @@
 -- Public API and setup entry point for nvim-kanban.
 local M = {}
 
-M.config = {}
+M.config = require("kanban.config").defaults
 
 ---@param opts table|nil User configuration (merged over defaults)
 function M.setup(opts)

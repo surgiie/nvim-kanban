@@ -777,6 +777,12 @@ function actions.close()
   end
 end
 
+-- Close the board, and quit neovim too when quit_on_close is enabled.
+function actions.quit()
+  actions.close()
+  if cfg().quit_on_close then vim.cmd("qa") end
+end
+
 -- Close the board and open the source file for direct editing.
 function actions.open_source()
   local path = M._filepath
@@ -880,8 +886,8 @@ function M._attach_keymaps()
     map(km.reload,          actions.reload)
     map(km.save,            actions.save)
     map(km.open_source,     actions.open_source)
-    map(km.close,           actions.close)
-    map(km.close2,          actions.close)
+    map(km.close,           actions.quit)
+    map(km.close2,          actions.quit)
     map(km.help,            actions.help)
 
     -- Block insert/replace/visual/editing keys that aren't already bound to an action.
@@ -1034,7 +1040,7 @@ end
 
 --- Close the board.
 function M.close()
-  actions.close()
+  actions.quit()
 end
 
 --- Toggle the board open or closed.

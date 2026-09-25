@@ -174,6 +174,9 @@ require("kanban").setup({
   -- Save the board file after every change
   auto_save = true,
 
+  -- Quit Neovim when the board is closed (q / <Esc> / toggle)
+  quit_on_close = true,
+
   -- Column name used for archived cards
   archive_column = "Archive",
 
