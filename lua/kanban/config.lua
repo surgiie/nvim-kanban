@@ -1,54 +1,43 @@
 local M = {}
 
 M.defaults = {
-  -- "markdown" or "org" — auto-detected from extension when nil
-  format = nil,
-
-  -- Global keymap to toggle the default board (set to false to disable)
+  -- Global keymap that toggles the board (false to disable)
   keymap = "<leader>kb",
 
-  -- Board width as a fraction of terminal width (1.0 = full width, evenly split)
-  width = 0.92,
+  -- Board size as a fraction of the editor
+  width  = 0.92,
   height = 0.85,
 
-  -- Minimum column width in characters (columns expand to fill board_width evenly)
+  -- Minimum column width; columns grow to fill the board
   column_width = 28,
+  column_gap   = 1,
 
-  -- Minimum gap between columns
-  column_gap = 1,
-
-  -- Icons shown in various places (set to "" to hide)
+  -- Set any icon to "" to hide it
   icons = {
-    card        = "󰆼 ",
-    card_done   = "󰄲 ",
-    tag         = "󰓹 ",
-    due         = "󰃰 ",
-    overdue     = "󰃮 ",
-    note        = "󰎞 ",
-    checkbox    = "󰄱 ",
-    checked     = "󰄲 ",
-    column      = "󰙅 ",
-    archive     = "󰀼 ",
-    search      = "󰍉 ",
-    add         = "󰐕 ",
-    delete      = "󰆴 ",
-    edit        = "󰏫 ",
-    move        = "󰁙 ",
-    calendar    = "󰃭 ",
+    card      = "󰆼 ",
+    card_done = "󰄲 ",
+    tag       = "󰓹 ",
+    due       = "󰃰 ",
+    overdue   = "󰃮 ",
+    note      = "󰎞 ",
+    column    = "󰙅 ",
+    search    = "󰍉 ",
+    add       = "󰐕 ",
+    edit      = "󰏫 ",
   },
 
-  -- Note files directory (nil = same dir as board file)
+  -- Directory for note files (nil = notes/ beside the board file)
   notes_dir = nil,
 
-  -- Auto-save board after every change
+  -- Save the board file after every change
   auto_save = true,
 
-  -- Quit neovim when the board is closed (q / <Esc> / :KanbanClose / toggle)
+  -- Quit Neovim when the board closes and no other buffers with a file or
+  -- unsaved text are open
   quit_on_close = true,
 
-  -- Keymaps (set any to false to disable)
+  -- Set any keymap to false to disable it
   keymaps = {
-    -- Navigation
     next_column       = "l",
     prev_column       = "h",
     card_down         = "j",
@@ -56,28 +45,26 @@ M.defaults = {
     first_card        = "gg",
     last_card         = "G",
 
-    -- Card actions
     open_card         = "o",
     add_card          = "a",
-    move_card_up      = "K",
-    move_card_down    = "J",
     edit_card         = "e",
     delete_card       = "d",
+    force_delete_card = "x",
     archive_card      = "A",
     move_card_right   = "<CR>",
     move_card_left    = "<BS>",
+    move_card_up      = "K",
+    move_card_down    = "J",
     toggle_done       = "<Space>",
     open_note         = "n",
     set_due_date      = "D",
 
-    -- Column actions
     add_column        = "C",
     rename_column     = "R",
     delete_column     = "X",
     move_column_left  = "H",
     move_column_right = "L",
 
-    -- Board actions
     search            = "/",
     reload            = "r",
     save              = "<leader>ks",
@@ -87,43 +74,26 @@ M.defaults = {
     help              = "?",
   },
 
-  -- Popup styling (for input, date picker, etc.)
   popup = {
-    border  = "rounded",
-    width   = 60,
-    height  = 6,
-    zindex  = 100,
+    border = "rounded",
+    zindex = 100,
   },
 
-  -- Date picker settings
   date_picker = {
     border = "rounded",
-    width  = 34,
   },
 
-  -- Archive column name (cards moved here are "archived")
+  -- Column that archived cards are moved to (created on first use)
   archive_column = "Archive",
 
-  -- Highlight group overrides (empty = use defaults linked to built-in groups)
+  -- Highlight group overrides, e.g. { KanbanCardSelected = { bg = "#3d4220" } }
   highlights = {},
 }
 
---- Merge user options over the plugin defaults.
----@param user_opts table|nil User-supplied configuration table
----@return table Merged configuration
+---@param user_opts table|nil
+---@return table
 function M.merge(user_opts)
-  local merged = vim.tbl_deep_extend("force", M.defaults, user_opts or {})
-  return merged
-end
-
---- Detect the board format ("markdown" or "org") from the file extension.
----@param filepath string|nil Path to the board file
----@return string Format name: "markdown" or "org"
-function M.detect_format(filepath)
-  if not filepath then return "markdown" end
-  local ext = filepath:match("%.([^%.]+)$")
-  if ext == "org" then return "org" end
-  return "markdown"
+  return vim.tbl_deep_extend("force", M.defaults, user_opts or {})
 end
 
 return M

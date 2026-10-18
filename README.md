@@ -25,7 +25,7 @@ A minimal kanban board for Neovim.
 
 ## Quick start
 
-Press `<leader>kb` in any project directory. If `.kanban/board.md` does not exist you will be prompted to create it. The board opens automatically.
+Press `<leader>kb` (or run `:Kanban`) in any project directory. If `.kanban/board.md` does not exist you will be prompted to create it. The board opens automatically.
 
 ```
 .kanban/
@@ -33,17 +33,13 @@ Press `<leader>kb` in any project directory. If `.kanban/board.md` does not exis
   notes/        ← per-card note files
 ```
 
-Opening a `.md` or `.org` file that contains `kanban-plugin:` in its frontmatter will also trigger the board to open automatically. Press `<leader>kt` to toggle between the board view and the raw source file.
+Opening any `.md` file directly inside a `.kanban/` directory (e.g. `nvim .kanban/board.md`) will also open it as a board. Press `<leader>kt` to toggle between the board view and the raw source file.
 
 ## Board format
 
-Boards are standard Markdown files with a small frontmatter block:
+Boards are plain Markdown files: each `##` heading is a column and each list item under it is a card.
 
 ```markdown
----
-kanban-plugin: basic
----
-
 ## To Do
 
 - [ ] Write tests #backend @due(2026-09-01)
@@ -60,17 +56,20 @@ kanban-plugin: basic
 - `#tag` — attach one or more tags
 - `@due(YYYY-MM-DD)` — set a due date
 - `@note(path)` — link a note file (managed automatically)
+- Indented lines under a card stay attached to it
 
-Org-mode files (`*.org`) are also supported.
+Anything else in the file (frontmatter, a title, text under a heading) is preserved when the board saves. Cards you don't edit are written back exactly as they were.
 
 ## Notes
 
 Each card can have one linked note file (a plain Markdown file in `.kanban/notes/`).
 
-- Press `n` on a card (or inside the card detail popup) to open or create a note
-- The note file is only attached to the card **after the buffer is saved with content** — closing an empty buffer does nothing and leaves no file behind
-- If you save content and then delete all of it, closing the buffer removes the file and detaches it from the card automatically
+- Press `n` on a card (or inside the card detail popup) to open or create a note in a full-screen window
+- Saving the note (`:w`) attaches it to the card and returns you to the board; closing it without saving (`:q`) also returns you to the board
+- A note is only attached once it is **saved with content** — closing an empty buffer leaves no file behind
+- Saving a note with all of its content deleted removes the file and detaches it from the card
 - Delete a note from within the card detail popup with `x`
+- Deleting a card also deletes its note file; archiving keeps it
 
 ## Keymaps
 
@@ -79,6 +78,7 @@ Each card can have one linked note file (a plain Markdown file in `.kanban/notes
 | Key | Action |
 |-----|--------|
 | `<leader>kb` | Toggle board open / closed |
+| `:Kanban [path]` | Toggle the board at `path` (default `.kanban/board.md`) |
 
 ### Inside the board
 
@@ -97,9 +97,9 @@ Each card can have one linked note file (a plain Markdown file in `.kanban/notes
 |-----|--------|
 | `o` | Open card detail popup |
 | `a` | Add new card (supports inline `#tags`) |
-| `e` | Edit card title and tags |
-| `d` | Delete card (with confirmation) |
-| `x` | Delete card (no confirmation) |
+| `e` | Edit card title and tags (save with all text cleared to delete the card) |
+| `d` | Delete card and its note (with confirmation) |
+| `x` | Delete card and its note (no confirmation) |
 | `J` / `K` | Reorder card down / up within column |
 | `<CR>` | Move card to next column |
 | `<BS>` | Move card to previous column |
@@ -155,9 +155,6 @@ Call `require("kanban").setup(opts)` with any of the following options. All are 
 
 ```lua
 require("kanban").setup({
-  -- File format: "markdown" or "org" (nil = auto-detect from extension)
-  format = nil,
-
   -- Global toggle keymap (set to false to disable)
   keymap = "<leader>kb",
 
@@ -174,7 +171,8 @@ require("kanban").setup({
   -- Save the board file after every change
   auto_save = true,
 
-  -- Quit Neovim when the board is closed (q / <Esc> / toggle)
+  -- Quit Neovim when the board is closed (q / <Esc> / toggle) and no other
+  -- buffers with a file or unsaved text are open
   quit_on_close = true,
 
   -- Column name used for archived cards
@@ -197,7 +195,8 @@ require("kanban").setup({
     open_card         = "o",
     add_card          = "a",
     edit_card         = "e",
-    delete_card       = "d",    -- with confirmation; "x" always skips confirm
+    delete_card       = "d",    -- with confirmation
+    force_delete_card = "x",    -- without confirmation
     archive_card      = "A",
     move_card_right   = "<CR>",
     move_card_left    = "<BS>",
@@ -224,38 +223,29 @@ require("kanban").setup({
     help              = "?",
   },
 
-  -- Popup window styling (input floats, detail popup)
+  -- Popup styling (input, detail, note, help and search windows)
   popup = {
     border = "rounded",
-    width  = 60,
-    height = 6,
     zindex = 100,
   },
 
   -- Date picker styling
   date_picker = {
     border = "rounded",
-    width  = 34,
   },
 
   -- Override Nerd Font icons (set any to "" to hide)
   icons = {
-    card        = "󰆼 ",
-    card_done   = "󰄲 ",
-    tag         = "󰓹 ",
-    due         = "󰃰 ",
-    overdue     = "󰃮 ",
-    note        = "󰎞 ",
-    checkbox    = "󰄱 ",
-    checked     = "󰄲 ",
-    column      = "󰙅 ",
-    archive     = "󰀼 ",
-    search      = "󰍉 ",
-    add         = "󰐕 ",
-    delete      = "󰆴 ",
-    edit        = "󰏫 ",
-    move        = "󰁙 ",
-    calendar    = "󰃭 ",
+    card      = "󰆼 ",
+    card_done = "󰄲 ",
+    tag       = "󰓹 ",
+    due       = "󰃰 ",
+    overdue   = "󰃮 ",
+    note      = "󰎞 ",
+    column    = "󰙅 ",
+    search    = "󰍉 ",
+    add       = "󰐕 ",
+    edit      = "󰏫 ",
   },
 
   -- Override highlight groups (see :h nvim_set_hl for the attribute table format)

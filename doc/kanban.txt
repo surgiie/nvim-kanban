@@ -12,7 +12,7 @@ CONTENTS                                                    *kanban-contents*
     2. Installation ................ |kanban-installation|
     3. Quick start ................. |kanban-quickstart|
     4. Keymaps ..................... |kanban-keymaps|
-    5. File formats ................ |kanban-formats|
+    5. File format ................. |kanban-format|
     6. Configuration ............... |kanban-configuration|
     7. Highlights .................. |kanban-highlights|
     8. API ......................... |kanban-api|
@@ -21,7 +21,7 @@ CONTENTS                                                    *kanban-contents*
 1. INTRODUCTION                                         *kanban-introduction*
 
 nvim-kanban lets you open, edit, and navigate a kanban board without leaving
-Neovim. Boards are stored as plain Markdown or Org-mode files that you can
+Neovim. Boards are stored as plain Markdown files that you can
 version-control, grep, and edit with any text editor.
 
 Features:
@@ -36,7 +36,6 @@ Features:
   • Full-screen card detail popup with note and due-date access
   • Per-card note files — only saved when buffer has content
   • Auto-save after every change (manual save with <leader>ks)
-  • Markdown and Org-mode board formats
 
 ==============================================================================
 2. INSTALLATION                                         *kanban-installation*
@@ -56,16 +55,17 @@ With lazy.nvim: >lua
 ==============================================================================
 3. QUICK START                                          *kanban-quickstart*
 
-Press `<leader>kb` in any project directory. If `.kanban/board.md` does not
-exist you will be prompted to create it. The board opens automatically.
+Press `<leader>kb` or run `:Kanban` in any project directory. If
+`.kanban/board.md` does not exist you will be prompted to create it.
+`:Kanban {path}` opens the board at {path} instead.
 
 The board stores files at: >
     .kanban/
       board.md      ← board file
       notes/        ← per-card note files
 <
-Opening a `.md` or `.org` file that contains `kanban-plugin:` or `#+KANBAN:`
-in its first few lines will also trigger the board to open automatically.
+Opening any `.md` file directly inside a `.kanban/` directory (e.g.
+`nvim .kanban/board.md`) will also open it as a board.
 Press `<leader>kt` to toggle between the board view and the raw source file.
 
 ==============================================================================
@@ -85,9 +85,9 @@ Navigation ~
 Cards ~
     i           Open card detail popup
     a           Add a new card  (supports inline `#tag` syntax)
-    e           Edit card title and tags
-    d           Delete card (with confirmation)
-    x           Delete card (no confirmation)
+    e           Edit card title and tags (clear all text to delete)
+    d           Delete card and its note (with confirmation)
+    x           Delete card and its note (no confirmation)
     A           Archive card to the archive column
     <CR>        Move card to the right column
     <BS>        Move card to the left column
@@ -128,16 +128,10 @@ Date picker ~
     <Esc>       Cancel
 
 ==============================================================================
-5. FILE FORMATS                                             *kanban-formats*
+5. FILE FORMAT                                               *kanban-format*
 
-Markdown ~
-
-Boards use the Obsidian Kanban format. The frontmatter block is required for
-auto-detection: >markdown
-    ---
-    kanban-plugin: basic
-    ---
-
+Boards are plain Markdown files: each `##` heading is a column and each list
+item under it is a card: >markdown
     ## To Do
 
     - [ ] Write the parser #feature @due(2025-01-15)
@@ -156,23 +150,11 @@ Inline metadata on each card line:
   • `#tagname`               attach a tag
   • `@due(YYYY-MM-DD)`       set a due date
   • `@note(path/to/file.md)` link a note file
+  • Indented lines under a card stay attached to it
 
-Org-mode ~
-
-Level-1 headings are columns; level-2 headings are cards: >org
-    #+TODO: TODO IN-PROGRESS | DONE
-
-    * To Do
-    ** TODO Write the parser                :feature:
-       DEADLINE: <2025-01-15 Wed>
-
-    * In Progress
-    ** IN-PROGRESS Refactor UI              :refactor:
-
-    * Done
-    ** DONE Initial scaffolding             :setup:
-<
-Note file paths are stored in a `:KANBAN_NOTE:` property drawer.
+Anything else in the file (frontmatter, a title, text under a heading) is
+preserved when the board saves. Cards you don't edit are written back exactly
+as they were.
 
 ==============================================================================
 6. CONFIGURATION                                        *kanban-configuration*
@@ -180,9 +162,6 @@ Note file paths are stored in a `:KANBAN_NOTE:` property drawer.
 Call `require("kanban").setup(opts)` with any of the options below.
 All are optional — the defaults are shown: >lua
     require("kanban").setup({
-      -- Format: "markdown", "org", or nil (auto-detect from extension)
-      format = nil,
-
       -- Global toggle keymap (false to disable)
       keymap = "<leader>kb",
 
@@ -199,7 +178,8 @@ All are optional — the defaults are shown: >lua
       -- Save the board file after every change
       auto_save = true,
 
-      -- Quit Neovim when the board is closed (q / <Esc> / toggle)
+      -- Quit Neovim when the board is closed (q / <Esc> / toggle) and no
+      -- other buffers with a file or unsaved text are open
       quit_on_close = true,
 
       -- Column name used for archived cards
@@ -210,36 +190,27 @@ All are optional — the defaults are shown: >lua
 
       -- Icons (set any to "" to hide; requires a Nerd Font)
       icons = {
-        card        = "󰆼 ",
-        card_done   = "󰄲 ",
-        tag         = "󰓹 ",
-        due         = "󰃰 ",
-        overdue     = "󰃮 ",
-        note        = "󰎞 ",
-        checkbox    = "󰄱 ",
-        checked     = "󰄲 ",
-        column      = "󰙅 ",
-        archive     = "󰀼 ",
-        search      = "󰍉 ",
-        add         = "󰐕 ",
-        delete      = "󰆴 ",
-        edit        = "󰏫 ",
-        move        = "󰁙 ",
-        calendar    = "󰃭 ",
+        card      = "󰆼 ",
+        card_done = "󰄲 ",
+        tag       = "󰓹 ",
+        due       = "󰃰 ",
+        overdue   = "󰃮 ",
+        note      = "󰎞 ",
+        column    = "󰙅 ",
+        search    = "󰍉 ",
+        add       = "󰐕 ",
+        edit      = "󰏫 ",
       },
 
-      -- Popup window styling (input floats, detail popup)
+      -- Popup styling (input, detail, note, help and search windows)
       popup = {
         border = "rounded",
-        width  = 60,
-        height = 6,
         zindex = 100,
       },
 
       -- Date picker styling
       date_picker = {
         border = "rounded",
-        width  = 34,
       },
 
       -- Keymaps (set any to false to disable)
@@ -257,6 +228,7 @@ All are optional — the defaults are shown: >lua
         add_card          = "a",
         edit_card         = "e",
         delete_card       = "d",
+        force_delete_card = "x",
         archive_card      = "A",
         move_card_right   = "<CR>",
         move_card_left    = "<BS>",
@@ -318,17 +290,16 @@ kanban.setup({opts})
     Initialize the plugin with user options. Merges `opts` over the defaults.
 
                                                         *kanban.open()*
-kanban.open({filepath}, {opts})
+kanban.open({filepath})
     Open a board. `filepath` defaults to `.kanban/board.md` in the cwd.
     If the file does not exist you are prompted to create it.
-    `opts` accepts `{ format = "markdown"|"org" }`.
 
                                                         *kanban.close()*
 kanban.close()
     Close the board.
 
                                                         *kanban.toggle()*
-kanban.toggle({filepath}, {opts})
+kanban.toggle({filepath})
     Toggle the board open or closed.
 
                                                         *kanban.save()*

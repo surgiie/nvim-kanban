@@ -6,37 +6,33 @@ end
 if vim.g.loaded_kanban then return end
 vim.g.loaded_kanban = true
 
--- Auto-open board when a kanban markdown/org file is opened directly
+local function define_highlights()
+  require("kanban.ui.highlights").define(require("kanban").config.highlights)
+end
+define_highlights()
+vim.api.nvim_create_autocmd("ColorScheme", {
+  group    = vim.api.nvim_create_augroup("KanbanHighlights", { clear = true }),
+  callback = define_highlights,
+})
+
+-- Opening a markdown file directly inside .kanban/ shows it as a board
 vim.api.nvim_create_autocmd("BufReadPost", {
   group    = vim.api.nvim_create_augroup("KanbanAutoOpen", { clear = true }),
-  pattern  = { "*.md", "*.org" },
-  callback = function(ev)
-    local path = ev.match
-    -- Peek at the first few lines to detect kanban frontmatter
-    local f = io.open(path, "r")
-    if not f then return end
-    local head = f:read(256)
-    f:close()
-    if not head then return end
-
-    local is_kanban = head:match("kanban%-plugin:") or head:match("#%+KANBAN:")
-    if not is_kanban then return end
-    if vim.g.kanban_suspend_autoopen then return end
-
-    -- Wipe the markdown buffer before opening the board so it never shows
-    local buf = ev.buf
+  pattern  = "*/.kanban/*.md",
+  callback = function(event)
+    -- `*` in the pattern also matches `/`, so this also fires for .kanban/notes/*.md
+    if vim.g.kanban_suspend_autoopen or not require("kanban.util").is_board_path(event.match) then return end
     vim.schedule(function()
-      -- Delete the buffer first so Neovim doesn't land on it after board opens
-      if vim.api.nvim_buf_is_valid(buf) then
-        vim.api.nvim_buf_delete(buf, { force = true })
-      end
-      require("kanban").open(path)
+      require("kanban.ui.window").delete_buf_keep_windows(event.buf)
+      require("kanban").open(event.match)
     end)
   end,
 })
 
+vim.api.nvim_create_user_command("Kanban", function(command)
+  require("kanban").toggle(command.args ~= "" and command.args or nil)
+end, { nargs = "?", complete = "file", desc = "Toggle the kanban board (default .kanban/board.md)" })
+
 vim.keymap.set("n", "<leader>kb", function()
   require("kanban").toggle()
 end, { desc = "Toggle Kanban board" })
-
-

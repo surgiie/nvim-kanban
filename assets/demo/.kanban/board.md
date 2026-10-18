@@ -1,7 +1,3 @@
----
-kanban-plugin: basic
----
-
 ## Backlog
 
 - [ ] Dark mode palette #ui

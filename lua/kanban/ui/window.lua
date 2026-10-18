@@ -1,322 +1,145 @@
--- Low-level window/buffer creation helpers.
 local M = {}
 
---- Create a scratch buffer that is wiped on close and never saved.
----@return number Buffer handle
+--- Unlisted, unmodifiable scratch buffer that is wiped when hidden.
+---@return integer
 function M.scratch_buf()
   local buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[buf].buftype   = "nofile"
-  vim.bo[buf].bufhidden = "wipe"
-  vim.bo[buf].swapfile  = false
+  vim.bo[buf].bufhidden  = "wipe"
   vim.bo[buf].modifiable = false
   return buf
 end
 
---- Replace the contents of a buffer (temporarily lifting the modifiable lock).
----@param buf number Buffer handle
----@param lines table List of line strings
+---@param buf integer
+---@param lines string[]
 function M.set_lines(buf, lines)
   vim.bo[buf].modifiable = true
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = false
 end
 
---- Make :w / :wq / :x in an input buffer trigger `confirm` instead of
---- erroring with "Cannot write, 'buftype' option is set" (these are
---- nofile scratch buffers, so there's nothing to actually write).
----@param buf number Buffer handle
----@param confirm function Called in place of writing
+--- Delete a buffer without closing the windows that show it; each gets an
+--- empty buffer instead. Closing them could leave a sidebar such as a file
+--- tree as the last window, which some plugins answer by quitting Neovim.
+---@param buf integer
+function M.delete_buf_keep_windows(buf)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+    vim.api.nvim_win_set_buf(win, vim.api.nvim_create_buf(true, false))
+  end
+  pcall(vim.api.nvim_buf_delete, buf, { force = true })
+end
+
+-- Make :w / :wq / :x in a nofile input buffer confirm instead of erroring.
 local function redirect_write_to_confirm(buf, confirm)
-  local cmd_name = "KanbanConfirm" .. buf
-  vim.api.nvim_buf_create_user_command(buf, cmd_name, confirm, {})
-  for _, cmd in ipairs({ "w", "wq", "x" }) do
+  local command = "KanbanConfirm" .. buf
+  vim.api.nvim_buf_create_user_command(buf, command, confirm, {})
+  for _, write_command in ipairs({ "w", "wq", "x" }) do
     vim.cmd(string.format(
       "cnoreabbrev <buffer> <expr> %s (getcmdtype() == ':' && getcmdline() == '%s') ? '%s' : '%s'",
-      cmd, cmd, cmd_name, cmd
+      write_command, write_command, command, write_command
     ))
   end
 end
 
---- Open a centered floating window for the given buffer.
----@param buf number Buffer handle to display
----@param opts table|nil Options: width, height, width_pct, height_pct, row, col,
----                               relative, anchor, border, zindex, title, footer,
----                               enter, hl_normal, hl_border, hl_cursor, cursorline
----@return number Window handle
-function M.open_float(buf, opts)
-  opts = opts or {}
-  local terminal_width  = vim.o.columns
-  local terminal_height = vim.o.lines
-  local w = opts.width  or math.floor(terminal_width  * (opts.width_pct  or 0.8))
-  local h = opts.height or math.floor(terminal_height * (opts.height_pct or 0.7))
-
-  local row = opts.row or math.floor((terminal_height - h) / 2)
-  local col = opts.col or math.floor((terminal_width  - w) / 2)
-
-  local win_cfg = {
-    relative  = opts.relative or "editor",
-    width     = w,
-    height    = h,
-    row       = row,
-    col       = col,
-    anchor    = opts.anchor or "NW",
-    style     = "minimal",
-    border    = opts.border or "rounded",
-    zindex    = opts.zindex or 50,
-  }
-  if opts.title then
-    win_cfg.title     = " " .. opts.title .. " "
-    win_cfg.title_pos = "center"
-  end
-  if opts.footer then
-    win_cfg.footer     = opts.footer
-    win_cfg.footer_pos = "right"
-  end
-
-  local win = vim.api.nvim_open_win(buf, opts.enter ~= false, win_cfg)
-
-  -- Window-local options
-  vim.wo[win].winblend    = 100
-  vim.wo[win].wrap        = false
-  vim.wo[win].number      = false
-  vim.wo[win].signcolumn  = "no"
-  vim.wo[win].cursorline  = opts.cursorline ~= false
-  vim.wo[win].winhighlight =
-    "Normal:" .. (opts.hl_normal or "KanbanNormal") ..
-    ",FloatBorder:" .. (opts.hl_border or "KanbanBorder") ..
-    ",CursorLine:" .. (opts.hl_cursor or "KanbanCursorLine")
-
-  -- Swallow keys that would leak through to buffers underneath
-  local noop = function() end
-  local swallow = { "<BS>", "h", "l", "w", "b", "e", "0", "$", "^",
-                    "<Left>", "<Right>", "<Up>", "<Down>",
-                    "x", "s", "S", "c", "C", "o", "O", "p", "P", "u", "<C-r>" }
-  for _, key in ipairs(swallow) do
-    vim.keymap.set("n", key, noop, { buffer = buf, noremap = true, silent = true, nowait = true })
-  end
-
-  return win
-end
-
---- Close a floating window and optionally delete its buffer.
----@param win number|nil Window handle
----@param buf number|nil Buffer handle
-function M.close(win, buf)
-  if win and vim.api.nvim_win_is_valid(win) then
-    pcall(vim.api.nvim_win_close, win, true)
-  end
-  if buf and vim.api.nvim_buf_is_valid(buf) then
-    pcall(vim.api.nvim_buf_delete, buf, { force = true })
-  end
-end
-
---- Open a small centered single-line input float (for short prompts like column names).
---- Confirm with <CR> or <C-s>, cancel with <Esc>.
----@param opts table|nil Options: title, default, placeholder, width, border, zindex, on_confirm, on_cancel
-function M.small_input_float(opts)
-  opts = opts or {}
-  local border         = opts.border or "rounded"
-  local terminal_width = vim.o.columns
-  local terminal_height = vim.o.lines
-  local width          = opts.width or math.min(70, terminal_width - 4)
-  local height         = 3
-
-  local row = math.floor((terminal_height - height) / 2) - 1
-  local col = math.floor((terminal_width  - width)  / 2)
-
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[buf].buftype   = "nofile"
-  vim.bo[buf].bufhidden = "wipe"
-  vim.bo[buf].filetype  = "kanban_input"
-
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative  = "editor",
-    width     = width,
-    height    = height,
-    row       = row,
-    col       = col,
-    anchor    = "NW",
-    style     = "minimal",
-    border    = border,
-    title     = opts.title and (" " .. opts.title .. " ") or nil,
-    title_pos = "center",
-    footer     = "  <CR> confirm  <Esc> cancel  ",
-    footer_pos = "right",
-    zindex    = opts.zindex or 200,
-  })
-
-  vim.api.nvim_set_option_value("winblend", 100, { win = win })
-  vim.api.nvim_set_option_value("wrap", false, { win = win })
-  vim.api.nvim_set_option_value("cursorline", false, { win = win })
-  vim.api.nvim_set_option_value("winhighlight",
-    "Normal:KanbanPopupNormal,FloatBorder:KanbanPopupBorder", { win = win })
-
-  -- Ghost/placeholder text shown when buffer is empty
-  local placeholder_ns = vim.api.nvim_create_namespace("kanban_small_input_placeholder")
-  local placeholder = opts.placeholder or "..."
-  local function update_placeholder()
-    vim.api.nvim_buf_clear_namespace(buf, placeholder_ns, 0, -1)
-    local lines = vim.api.nvim_buf_get_lines(buf, 0, 1, false)
-    if not lines[1] or lines[1] == "" then
-      vim.api.nvim_buf_set_extmark(buf, placeholder_ns, 0, 0, {
+local function show_placeholder(buf, placeholder)
+  local ns = vim.api.nvim_create_namespace("kanban_input_placeholder")
+  local function update()
+    vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+    if (vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or "") == "" then
+      vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, {
         virt_text     = { { placeholder, "Comment" } },
         virt_text_pos = "overlay",
         hl_mode       = "combine",
       })
     end
   end
-
-  -- Seed default text
-  if opts.default and opts.default ~= "" then
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { opts.default })
-    vim.api.nvim_win_set_cursor(win, { 1, #opts.default })
-  end
-  update_placeholder()
-  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
-    buffer   = buf,
-    callback = update_placeholder,
-  })
-
-  local function confirm()
-    local lines = vim.api.nvim_buf_get_lines(buf, 0, 1, false)
-    local val   = vim.trim(lines[1] or "")
-    if vim.api.nvim_win_is_valid(win) then
-      vim.api.nvim_win_close(win, true)
-    end
-    if opts.on_confirm then opts.on_confirm(val) end
-  end
-
-  local function cancel()
-    if vim.api.nvim_win_is_valid(win) then
-      vim.api.nvim_win_close(win, true)
-    end
-    if opts.on_cancel then opts.on_cancel() end
-  end
-
-  local map = function(modes, key, fn)
-    vim.keymap.set(modes, key, fn, { buffer = buf, noremap = true, silent = true, nowait = true })
-  end
-
-  map({ "i", "n" }, "<CR>",  confirm)
-  map({ "i", "n" }, "<C-s>", confirm)
-  map("i", "<Esc>", "<Esc>")
-  map("n", "<Esc>", cancel)
-
-  -- Block multi-line input
-  map({ "i", "n" }, "<C-j>", function() end)
-  map({ "i", "n" }, "<C-m>", function() end)
-
-  redirect_write_to_confirm(buf, confirm)
-
-  if opts.default and opts.default ~= "" then
-    vim.cmd("startinsert!")
-  else
-    vim.cmd("startinsert")
-  end
+  update()
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, { buffer = buf, callback = update })
 end
 
---- Open a full-screen editable float for text input (add/edit card).
---- Confirm with <C-s>, cancel with <Esc>.
----@param opts table|nil Options: title, default, placeholder, width, height, border, zindex, on_confirm, on_cancel
-function M.input_float(opts)
-  opts = opts or {}
-  local border          = opts.border or "rounded"
-  local terminal_width  = vim.o.columns
-  local terminal_height = vim.o.lines
-  local width           = terminal_width  - 2
-  local height          = terminal_height - 4
-
-  local row = 1
-  local col = 0
-
+local function open_input(opts, layout)
   local buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[buf].buftype   = "nofile"
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].filetype  = "kanban_input"
 
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative  = "editor",
-    width     = width,
-    height    = height,
-    row       = row,
-    col       = col,
-    anchor    = "NW",
-    style     = "minimal",
-    border    = border,
-    title     = opts.title and (" " .. opts.title .. " ") or nil,
-    title_pos = "center",
-    zindex    = opts.zindex or 100,
-  })
-
-  vim.api.nvim_set_option_value("winblend", 100, { win = win })
-  vim.api.nvim_set_option_value("wrap", true, { win = win })
-  vim.api.nvim_set_option_value("cursorline", false, { win = win })
-  vim.api.nvim_set_option_value("winhighlight",
-    "Normal:KanbanPopupNormal,FloatBorder:KanbanPopupBorder", { win = win })
-
-  -- Footer hint
-  vim.api.nvim_win_set_config(win, {
-    footer     = "  <C-s> confirm  <Esc> cancel  ",
+  local win = vim.api.nvim_open_win(buf, true, vim.tbl_extend("force", layout.geometry, {
+    relative   = "editor",
+    style      = "minimal",
+    border     = opts.border or "rounded",
+    title      = opts.title and (" " .. opts.title .. " "),
+    title_pos  = opts.title and "center",
+    footer     = layout.footer,
     footer_pos = "right",
-  })
+    zindex     = opts.zindex or 200,
+  }))
+  vim.wo[win].winblend     = 100
+  vim.wo[win].wrap         = layout.wrap
+  vim.wo[win].cursorline   = false
+  vim.wo[win].winhighlight = "Normal:KanbanPopupNormal,FloatBorder:KanbanPopupBorder"
 
-  -- Seed default text and place cursor at end
-  if opts.default and opts.default ~= "" then
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { opts.default })
-    vim.api.nvim_win_set_cursor(win, { 1, #opts.default - 1 })
+  local default = opts.default or ""
+  if default ~= "" then vim.api.nvim_buf_set_lines(buf, 0, -1, false, { default }) end
+  show_placeholder(buf, opts.placeholder or "")
+
+  local function close()
+    if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
   end
-
-  -- Ghost/placeholder text shown when buffer is empty
-  local placeholder_ns = vim.api.nvim_create_namespace("kanban_input_placeholder")
-  local placeholder = opts.placeholder or "title #tag1 #tag2 ..."
-  local function update_placeholder()
-    vim.api.nvim_buf_clear_namespace(buf, placeholder_ns, 0, -1)
-    local lines = vim.api.nvim_buf_get_lines(buf, 0, 1, false)
-    if not lines[1] or lines[1] == "" then
-      vim.api.nvim_buf_set_extmark(buf, placeholder_ns, 0, 0, {
-        virt_text          = { { placeholder, "Comment" } },
-        virt_text_pos      = "overlay",
-        hl_mode            = "combine",
-      })
-    end
-  end
-  update_placeholder()
-  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
-    buffer   = buf,
-    callback = update_placeholder,
-  })
-
   local function confirm()
-    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    local val   = vim.trim(table.concat(lines, " "))
-    if vim.api.nvim_win_is_valid(win) then
-      vim.api.nvim_win_close(win, true)
+    local text = vim.trim(table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), " "))
+    close()
+    if text ~= "" then
+      opts.on_confirm(text)
+    elseif opts.on_empty or opts.on_cancel then
+      (opts.on_empty or opts.on_cancel)()
     end
-    if val ~= "" and opts.on_confirm then opts.on_confirm(val) end
   end
-
   local function cancel()
-    if vim.api.nvim_win_is_valid(win) then
-      vim.api.nvim_win_close(win, true)
-    end
+    close()
     if opts.on_cancel then opts.on_cancel() end
   end
 
-  local map = function(modes, key, fn)
-    vim.keymap.set(modes, key, fn, { buffer = buf, noremap = true, silent = true, nowait = true })
+  local function map(modes, key, action)
+    vim.keymap.set(modes, key, action, { buffer = buf, noremap = true, silent = true, nowait = true })
   end
-
-  map({"i", "n"}, "<C-s>", confirm)
+  map({ "i", "n" }, "<C-s>", confirm)
   map("i", "<Esc>", "<Esc>")
   map("n", "<Esc>", cancel)
-
+  for _, key in ipairs(layout.confirm_keys or {}) do map({ "i", "n" }, key, confirm) end
+  for _, key in ipairs(layout.blocked_keys or {}) do map({ "i", "n" }, key, function() end) end
   redirect_write_to_confirm(buf, confirm)
 
-  if opts.default and opts.default ~= "" then
-    vim.cmd("startinsert!")
-  else
-    vim.cmd("startinsert")
-  end
+  vim.cmd(default ~= "" and "startinsert!" or "startinsert")
+end
+
+--- Centered single-line input. Confirm with <CR> or <C-s>, cancel with <Esc>.
+--- Confirming with no text calls `on_cancel`.
+---@param opts { title: string?, default: string?, placeholder: string?, border: string?, zindex: integer?, on_confirm: fun(text: string), on_cancel: fun()? }
+function M.small_input_float(opts)
+  local width = math.min(70, vim.o.columns - 4)
+  open_input(opts, {
+    geometry     = {
+      width  = width,
+      height = 3,
+      row    = math.floor((vim.o.lines - 3) / 2) - 1,
+      col    = math.floor((vim.o.columns - width) / 2),
+    },
+    footer       = "  <CR> confirm  <Esc> cancel  ",
+    wrap         = false,
+    confirm_keys = { "<CR>" },
+    blocked_keys = { "<C-j>" },
+  })
+end
+
+--- Full-screen input whose lines are joined with spaces. Confirm with <C-s>,
+--- cancel with <Esc>. Confirming with no text calls `on_empty`, or `on_cancel`
+--- when `on_empty` is not given.
+---@param opts { title: string?, default: string?, placeholder: string?, border: string?, zindex: integer?, on_confirm: fun(text: string), on_cancel: fun()?, on_empty: fun()? }
+function M.input_float(opts)
+  open_input(opts, {
+    geometry = { width = vim.o.columns - 2, height = vim.o.lines - 4, row = 1, col = 0 },
+    footer   = "  <C-s> confirm  <Esc> cancel  ",
+    wrap     = true,
+  })
 end
 
 return M

@@ -1,331 +1,240 @@
--- Board state and operations. Sits between parsers and the UI.
-local util = require("kanban.util")
+-- The loaded board and the operations on it. All mutations mark it modified;
+-- callers decide when to save.
+local util   = require("kanban.util")
+local parser = require("kanban.parser")
 local M = {}
 
--- Active board instance
 M._board    = nil
 M._filepath = nil
-M._format   = nil
 M._modified = false
 
--- Return the appropriate parser module for the given format string.
-local function get_parser(format)
-  if format == "org" then
-    return require("kanban.parser.org")
-  end
-  return require("kanban.parser.markdown")
-end
-
---- Load a board from a file and replace the active board state.
----@param filepath string Path to the board file
----@param format string|nil "markdown" or "org" (auto-detected when nil)
----@return table Parsed board table
-function M.load(filepath, format)
-  local config = require("kanban").config
-  format = format or config.format or require("kanban.config").detect_format(filepath)
-
-  local parser = get_parser(format)
-  local board  = parser.parse_file(filepath)
-
-  -- Assign stable IDs to cards that don't have one
-  for _, col in ipairs(board.columns) do
-    for _, card in ipairs(col.cards) do
-      if not card.id then card.id = util.uuid() end
-    end
-  end
-
-  M._board    = board
+---@param filepath string
+---@return table
+function M.load(filepath)
+  M._board    = parser.parse_file(filepath)
   M._filepath = filepath
-  M._format   = format
   M._modified = false
-  return board
+  return M._board
 end
 
---- Serialize and write the active board back to its source file.
----@return boolean True on success
+---@param filepath string
+---@return boolean
+function M.is_loaded(filepath)
+  return M._board ~= nil and M._filepath == filepath
+end
+
+---@return boolean
 function M.save()
   if not M._board or not M._filepath then return false end
-  local parser = get_parser(M._format)
-  local success = parser.serialize_file(M._board, M._filepath)
-  if success then M._modified = false end
-  return success
+  local saved = parser.serialize_file(M._board, M._filepath)
+  if saved then M._modified = false end
+  return saved
 end
 
---- Return the currently loaded board table.
----@return table|nil Board table, or nil if no board is loaded
+---@return table|nil
 function M.get()
   return M._board
 end
 
---- Return true if the board has unsaved changes.
----@return boolean True when modified
+---@return boolean
 function M.is_modified()
   return M._modified
 end
 
---- Mark the board as having unsaved changes.
 function M.mark_modified()
   M._modified = true
 end
 
--- ── Column operations ────────────────────────────────────────────────────────
+-- ── Columns ──────────────────────────────────────────────────────────────────
 
---- Return the column table at the given 1-based index.
----@param col_idx number 1-based column index
----@return table|nil Column table, or nil if out of range
+---@param col_idx integer
+---@return table|nil
 function M.get_column(col_idx)
-  if not M._board then return nil end
-  return M._board.columns[col_idx]
+  return M._board and M._board.columns[col_idx]
 end
 
---- Return the total number of columns in the active board.
----@return number Column count (0 if no board is loaded)
+---@return integer
 function M.column_count()
-  if not M._board then return 0 end
+  return M._board and #M._board.columns or 0
+end
+
+--- Append a column and return its index.
+---@param name string
+---@return integer
+function M.add_column(name)
+  table.insert(M._board.columns, { name = name, cards = {} })
+  M._modified = true
   return #M._board.columns
 end
 
---- Insert a new empty column after the given index.
----@param name string Column name
----@param after_idx number|nil Insert after this column index (default: last column)
----@return number|nil New column's 1-based index, or nil if no board is loaded
-function M.add_column(name, after_idx)
-  if not M._board then return nil end
-  local col = { name = name, cards = {} }
-  after_idx = after_idx or #M._board.columns
-  table.insert(M._board.columns, after_idx + 1, col)
-  M._modified = true
-  return #M._board.columns  -- new column index
-end
-
---- Rename an existing column.
----@param col_idx number 1-based column index
----@param new_name string Replacement name
----@return boolean True on success
+---@param col_idx integer
+---@param new_name string
 function M.rename_column(col_idx, new_name)
   local col = M.get_column(col_idx)
-  if not col then return false end
-  col.name   = new_name
+  if not col then return end
+  col.name = new_name
   M._modified = true
-  return true
 end
 
---- Move a column left or right by one position.
----@param col_idx number 1-based column index to move
----@param direction number -1 to move left, 1 to move right
----@return number New 1-based column index, or same if already at the boundary
+--- Swap a column with its neighbour and return its new index.
+---@param col_idx integer
+---@param direction integer -1 or 1
+---@return integer
 function M.move_column(col_idx, direction)
-  if not M._board then return col_idx end
-  local cols = M._board.columns
+  local columns = M._board.columns
   local new_idx = col_idx + direction
-  if new_idx < 1 or new_idx > #cols then return col_idx end
-  cols[col_idx], cols[new_idx] = cols[new_idx], cols[col_idx]
+  if new_idx < 1 or new_idx > #columns then return col_idx end
+  columns[col_idx], columns[new_idx] = columns[new_idx], columns[col_idx]
   M._modified = true
   return new_idx
 end
 
---- Delete a column (refuses if it would leave fewer than one column).
----@param col_idx number 1-based column index
----@return boolean True on success
+--- Delete a column and its cards; the last remaining column cannot be deleted.
+---@param col_idx integer
+---@return boolean
 function M.delete_column(col_idx)
-  if not M._board then return false end
-  if #M._board.columns <= 1 then return false end
+  if M.column_count() <= 1 then return false end
   table.remove(M._board.columns, col_idx)
   M._modified = true
   return true
 end
 
--- ── Card operations ──────────────────────────────────────────────────────────
+-- ── Cards ────────────────────────────────────────────────────────────────────
 
---- Return the card at the given column/card indices.
----@param col_idx number 1-based column index
----@param card_idx number 1-based card index within the column
----@return table|nil Card table, or nil if out of range
+---@param col_idx integer
+---@param card_idx integer
+---@return table|nil
 function M.get_card(col_idx, card_idx)
   local col = M.get_column(col_idx)
-  if not col then return nil end
-  return col.cards[card_idx]
+  return col and col.cards[card_idx]
 end
 
---- Add a new card to a column.
----@param col_idx number 1-based column index
----@param title string Card title
----@param opts table|nil { tags, due_date, note_file, pos }
----@return table|nil, number|nil New card table and its 1-based position, or nil on failure
-function M.add_card(col_idx, title, opts)
+--- Append a card to a column and return it with its position.
+---@param col_idx integer
+---@param title string
+---@param tags string[]
+---@return table|nil, integer|nil
+function M.add_card(col_idx, title, tags)
   local col = M.get_column(col_idx)
   if not col then return nil end
-  opts = opts or {}
-  local card = {
-    id        = util.uuid(),
-    title     = title,
-    done      = false,
-    tags      = opts.tags or {},
-    due_date  = opts.due_date,
-    note_file = opts.note_file,
-  }
-  -- Insert at position (default: end)
-  local pos = opts.pos or (#col.cards + 1)
-  table.insert(col.cards, pos, card)
+  local card = { id = util.new_id(), title = title, done = false, tags = tags or {} }
+  table.insert(col.cards, card)
   M._modified = true
-  return card, pos
+  return card, #col.cards
 end
 
---- Update fields on an existing card.
----@param col_idx number 1-based column index
----@param card_idx number 1-based card index
----@param fields table Key/value pairs to merge into the card
----@return boolean True on success
+---@param col_idx integer
+---@param card_idx integer
+---@param fields table Merged into the card; use detach_note to clear note_file
 function M.update_card(col_idx, card_idx, fields)
   local card = M.get_card(col_idx, card_idx)
-  if not card then return false end
-  for k, v in pairs(fields) do
-    card[k] = v
-  end
+  if not card then return end
+  for key, value in pairs(fields) do card[key] = value end
   M._modified = true
-  return true
 end
 
---- Remove a card from a column and return it.
----@param col_idx number 1-based column index
----@param card_idx number 1-based card index
----@return table|nil Removed card, or nil if not found
+--- Remove a card and delete its note file.
+---@param col_idx integer
+---@param card_idx integer
 function M.delete_card(col_idx, card_idx)
   local col = M.get_column(col_idx)
-  if not col or not col.cards[card_idx] then return nil end
-  local card = table.remove(col.cards, card_idx)
+  if not col or not col.cards[card_idx] then return end
+  M.detach_note(table.remove(col.cards, card_idx))
   M._modified = true
-  return card
 end
 
---- Move a card from one column to another, optionally at a specific position.
----@param from_col number Source column index
----@param from_card number Source card index
----@param to_col number Destination column index
----@param to_pos number|nil Destination position (default: end of column)
----@return boolean, number|nil True and the card's new position on success, false on failure
+--- Move a card and return its new position, or nil if either index is invalid.
+---@param from_col integer
+---@param from_card integer
+---@param to_col integer
+---@param to_pos integer|nil Defaults to the end of the destination column
+---@return integer|nil
 function M.move_card(from_col, from_card, to_col, to_pos)
-  local src_col = M.get_column(from_col)
-  if not src_col or not src_col.cards[from_card] then return false end
-
-  local dst_col = M.get_column(to_col)
-  if not dst_col then return false end
-
-  local card = table.remove(src_col.cards, from_card)
-  to_pos = to_pos or (#dst_col.cards + 1)
-  to_pos = math.max(1, math.min(to_pos, #dst_col.cards + 1))
-  table.insert(dst_col.cards, to_pos, card)
+  local source = M.get_column(from_col)
+  local target = M.get_column(to_col)
+  if not source or not target or not source.cards[from_card] then return nil end
+  local card = table.remove(source.cards, from_card)
+  to_pos = math.max(1, math.min(to_pos or (#target.cards + 1), #target.cards + 1))
+  table.insert(target.cards, to_pos, card)
   M._modified = true
-  return true, to_pos
+  return to_pos
 end
 
---- Toggle the done state of a card (and update the org keyword if present).
----@param col_idx number 1-based column index
----@param card_idx number 1-based card index
----@return boolean True on success
+---@param col_idx integer
+---@param card_idx integer
+---@param date string|nil YYYY-MM-DD, or nil to clear
+function M.set_due_date(col_idx, card_idx, date)
+  local card = M.get_card(col_idx, card_idx)
+  if not card then return end
+  card.due_date = date
+  M._modified = true
+end
+
+---@param col_idx integer
+---@param card_idx integer
 function M.toggle_done(col_idx, card_idx)
   local card = M.get_card(col_idx, card_idx)
-  if not card then return false end
-  card.done   = not card.done
-  -- Update org keyword if present
-  if card.keyword then
-    if card.done then
-      card.keyword = "DONE"
-    else
-      card.keyword = "TODO"
-    end
-  end
+  if not card then return end
+  card.done = not card.done
   M._modified = true
-  return true
 end
 
---- Move a card to the archive column (creating it if necessary).
----@param col_idx number 1-based column index
----@param card_idx number 1-based card index
----@return boolean, number|nil, number|nil Success flag, archive column index, new card position
+--- Move a card to the archive column, creating the column if needed.
+---@param col_idx integer
+---@param card_idx integer
+---@return boolean
 function M.archive_card(col_idx, card_idx)
-  local config = require("kanban").config
-  local archive_name = config.archive_column or "Archive"
-
-  -- Find or create archive column
-  local archive_idx = nil
+  local archive_name = require("kanban").config.archive_column
+  local archive_idx
   for i, col in ipairs(M._board.columns) do
-    if col.name == archive_name then
-      archive_idx = i
-      break
-    end
+    if col.name == archive_name then archive_idx = i; break end
   end
-  if not archive_idx then
-    archive_idx = M.add_column(archive_name)
-  end
-
-  local success, new_pos = M.move_card(col_idx, card_idx, archive_idx)
-  return success, archive_idx, new_pos
+  return M.move_card(col_idx, card_idx, archive_idx or M.add_column(archive_name)) ~= nil
 end
 
--- ── Search ───────────────────────────────────────────────────────────────────
-
---- Search cards by title and tags across all columns.
----@param query string Search string (case-insensitive, plain text)
----@return table List of { col_idx, card_idx, col_name, card } result tables
+--- Case-insensitive plain-text search over card titles and tags.
+---@param query string
+---@return { col_idx: integer, card_idx: integer, col_name: string, card: table }[]
 function M.search(query)
-  if not M._board or not query or query == "" then return {} end
+  if not M._board or query == "" then return {} end
   query = query:lower()
   local results = {}
-
-  for card_list_index, col in ipairs(M._board.columns) do
-    for card_index, card in ipairs(col.cards) do
-      local haystack = (card.title .. " " .. table.concat(card.tags or {}, " ")):lower()
+  for col_idx, col in ipairs(M._board.columns) do
+    for card_idx, card in ipairs(col.cards) do
+      local haystack = (card.title .. " " .. table.concat(card.tags, " ")):lower()
       if haystack:find(query, 1, true) then
-        results[#results + 1] = {
-          col_idx  = card_list_index,
-          card_idx = card_index,
-          col_name = col.name,
-          card     = card,
-        }
+        results[#results + 1] = { col_idx = col_idx, card_idx = card_idx, col_name = col.name, card = card }
       end
     end
   end
-
   return results
 end
 
--- ── Note files ───────────────────────────────────────────────────────────────
+-- ── Notes ────────────────────────────────────────────────────────────────────
 
---- Compute the filesystem path for a card's associated note file.
----@param card table Card table
----@return string Absolute path to the note file (parent directory is created)
+--- The card's note path, or a new one in the notes directory. Creates the
+--- parent directory but not the file.
+---@param card table
+---@return string
 function M.note_path(card)
-  local path
-  if card.note_file then
-    path = card.note_file
-  else
-    local config = require("kanban").config
-    local notes_dir
-
-    if config.notes_dir then
-      notes_dir = vim.fn.expand(config.notes_dir)
-    elseif M._filepath then
-      notes_dir = vim.fn.fnamemodify(M._filepath, ":h") .. "/notes"
-    else
-      notes_dir = vim.fn.expand("~/.kanban/notes")
-    end
-
-    local slug = util.slug(card.title):sub(1, 40)
-    path = notes_dir .. "/" .. slug .. "-" .. (card.id or "note") .. ".md"
+  local path = card.note_file
+  if not path then
+    local config    = require("kanban").config
+    local notes_dir = config.notes_dir and vim.fn.expand(config.notes_dir)
+      or (vim.fn.fnamemodify(M._filepath, ":h") .. "/notes")
+    path = notes_dir .. "/" .. util.slug(card.title):sub(1, 40) .. "-" .. card.id .. ".md"
   end
-
-  -- Always ensure the parent directory exists before returning
   util.ensure_dir(vim.fn.fnamemodify(path, ":h"))
   return path
 end
 
---- Return the note file path for a card without modifying the card.
---- The caller is responsible for attaching the path once the file actually exists.
----@param card table Card table
----@return string Path to the note file
-function M.open_note(card)
-  return M.note_path(card)
+--- Delete the card's note file, if any, and unlink it from the card.
+---@param card table
+function M.detach_note(card)
+  if not card.note_file then return end
+  os.remove(card.note_file)
+  card.note_file = nil
+  M._modified = true
 end
 
 return M
