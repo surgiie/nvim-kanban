@@ -147,7 +147,7 @@ item under it is a card: >markdown
 <
 Inline metadata on each card line:
   • `- [ ]` / `- [x]`       open / done checkbox
-  • `#tagname`               attach a tag
+  • `#tagname`               attach a tag (`##` is a literal `#`)
   • `@due(YYYY-MM-DD)`       set a due date
   • `@note(path/to/file.md)` link a note file
   • Indented lines under a card stay attached to it

@@ -36,15 +36,30 @@ local function split_frontmatter(content)
 end
 
 --- Remove `#tag` tokens from text and return the remaining title and the tags.
+--- `##` is a literal `#`, so `Fix ##123` is the title "Fix #123".
 ---@param text string
 ---@return string, string[]
 function M.split_tags(text)
   local tags = {}
-  local title = text:gsub("#([%w_%-]+)", function(tag)
-    tags[#tags + 1] = tag
-    return ""
+  local title = text:gsub("(#+)([%w_%-]*)", function(hashes, word)
+    local literal = string.rep("#", math.floor(#hashes / 2))
+    if #hashes % 2 == 0 then return literal .. word end
+    if word == "" then return literal .. "#" end
+    tags[#tags + 1] = word
+    return literal
   end)
   return util.trim(title), tags
+end
+
+--- Inverse of split_tags for a title: double every `#` that would otherwise
+--- start a tag or pair with another `#`.
+---@param title string
+---@return string
+function M.escape_title(title)
+  return (title:gsub("(#+)([%w_%-]?)", function(hashes, next_char)
+    if next_char ~= "" then return string.rep("#", #hashes * 2) .. next_char end
+    return string.rep("#", #hashes * 2 - 1)
+  end))
 end
 
 local function parse_card_line(line)
@@ -60,7 +75,7 @@ local function parse_card_line(line)
 end
 
 local function serialize_card(card)
-  local parts = { "- [" .. (card.done and "x" or " ") .. "] " .. card.title }
+  local parts = { "- [" .. (card.done and "x" or " ") .. "] " .. M.escape_title(card.title) }
   if card.due_date then parts[#parts + 1] = "@due(" .. card.due_date .. ")" end
   if card.note_file then parts[#parts + 1] = "@note(" .. card.note_file .. ")" end
   for _, tag in ipairs(card.tags or {}) do parts[#parts + 1] = "#" .. tag end

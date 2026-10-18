@@ -53,7 +53,7 @@ Boards are plain Markdown files: each `##` heading is a column and each list ite
 ```
 
 - `- [ ]` / `- [x]` — open / done card
-- `#tag` — attach one or more tags
+- `#tag` — attach one or more tags; write `##` for a literal `#` (`Fix ##123` shows as "Fix #123")
 - `@due(YYYY-MM-DD)` — set a due date
 - `@note(path)` — link a note file (managed automatically)
 - Indented lines under a card stay attached to it

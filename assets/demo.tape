@@ -70,7 +70,7 @@ Sleep 500ms
 Enter
 Sleep 1500ms
 
-# --- Attach a note ---
+# --- Attach a note (saving returns to the board) ---
 Type "n"
 Sleep 800ms
 Type "i"
@@ -78,7 +78,7 @@ Sleep 300ms
 Type "Coordinate with marketing on launch day timing."
 Sleep 500ms
 Escape
-Type ":wq"
+Type ":w"
 Enter
 Sleep 1500ms
 
@@ -94,19 +94,25 @@ Sleep 800ms
 Enter
 Sleep 1500ms
 
+# --- Search across columns and jump to the second match ---
+Type "/"
+Sleep 600ms
+Type "test"
+Sleep 800ms
+Ctrl+J
+Sleep 800ms
+Enter
+Sleep 1500ms
+
 # Help popup
 Type "?"
 Sleep 1500ms
 Type "q"
 Sleep 500ms
 
-# Close the board
+# Close the board (quit_on_close exits Neovim as no other buffers are open)
 Type "q"
-Sleep 600ms
-
-Type ":qa!"
-Enter
-Sleep 300ms
+Sleep 800ms
 Hide
 Type "clear"
 Enter

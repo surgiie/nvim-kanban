@@ -243,7 +243,7 @@ function actions.edit_card()
   local card = focused_card()
   if not card then return end
   local col_idx, card_idx = M._state.col_idx, M._state.card_idx
-  local default = card.title
+  local default = parser.escape_title(card.title)
   for _, tag in ipairs(card.tags) do default = default .. " #" .. tag end
 
   local resume = suspend_board()
